@@ -60,8 +60,38 @@ The following CMake build options can be used to configure the build by setting 
 | FTP_EXTRA_TEST_FILES | Test with more large files fetched via FTP. | OFF |
 | LOGGING | Turn on internal logging messages. Only useful to g2c developers. | OFF |
 | PTHREADS | Turn on thread-safty with pthreads. | OFF |
+| OPENMP | Build with OpenMP support, used to vectorize/parallelize the hot per-point loops in the pack/unpack routines on the CPU. | OFF |
+| ENABLE_GPU_OFFLOAD | Build with OpenMP target GPU offload support for those same loops (implies OPENMP). Requires an OpenMP offload-capable compiler plus target-architecture flags supplied via CMAKE_C_FLAGS (e.g. `-fopenmp-targets=nvptx64-nvidia-cuda` for Clang, or `-mp=gpu` for NVHPC). | OFF |
 | UTILS | Build and install some utility programs. | ON |
 | BUILD_G2C | Build the g2c file-based API. | ON |
+
+## Performance: OpenMP and GPU Offload
+
+NCEPLIBS-g2c is, by default, a plain serial CPU library: no threading
+or GPU support is enabled. Setting `-DOPENMP=ON` vectorizes/parallelizes
+the embarrassingly-parallel per-point loops that occur throughout
+pack/unpack (e.g. the scale-back loop in simunpack()/comunpack(), the
+min/max search in simpack(), and gbits() itself, whose bit offsets are
+computed independently per element rather than carried from one loop
+iteration to the next). These loops only run in parallel when the
+number of points exceeds `G2C_OMP_MIN_N` (10000), so small fields
+still use a plain scalar loop and pay no OpenMP overhead.
+
+Setting `-DENABLE_GPU_OFFLOAD=ON` additionally compiles those same
+loops with OpenMP `target` regions, so they can run on a GPU instead
+of the CPU. This option implies `OPENMP=ON`. Note that:
+
+- It requires an OpenMP offload-capable compiler and the correct
+  target-architecture flags for your GPU, passed via `CMAKE_C_FLAGS`;
+  these are compiler- and vendor-specific and are not set automatically
+  by this option.
+- It only covers the library's own pack/unpack math. Codec-compressed
+  data (JPEG2000, PNG, AEC data representation templates) is decoded
+  by external libraries (Jasper/OpenJPEG, libpng, libaec), which this
+  option does not change.
+- On a system with no offload device available, OpenMP `target`
+  regions fall back to running on the host CPU, so builds with this
+  option still work correctly on CPU-only machines.
 
 ## GRIB2 File-Based API
 

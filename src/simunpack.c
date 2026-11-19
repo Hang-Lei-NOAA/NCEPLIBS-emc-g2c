@@ -25,7 +25,7 @@
  * @author Stephen Gilbert @date 2002-10-29
  */
 g2int
-simunpack(unsigned char *cpack, g2int *idrstmpl, g2int ndpts, float *fld)
+simunpack(unsigned char *restrict cpack, g2int *idrstmpl, g2int ndpts, float *restrict fld)
 {
     g2int *ifld;
     g2int j, nbits;
@@ -41,7 +41,11 @@ simunpack(unsigned char *cpack, g2int *idrstmpl, g2int ndpts, float *fld)
     dscale = int_power(10.0, -idrstmpl[2]);
     nbits = idrstmpl[3];
 
-    if (!(ifld = calloc(ndpts, sizeof(g2int))))
+    /* malloc(), not calloc(): every element of ifld is either fully
+     * overwritten by gbits() below, or never read at all (the nbits
+     * == 0 constant-field branch does not touch ifld), so zero-
+     * initializing it here would just be wasted work on every call. */
+    if (!(ifld = malloc(ndpts * sizeof(g2int))))
     {
         fprintf(stderr, "Could not allocate space in simunpack.\n  "
                         "Data field NOT upacked.\n");
@@ -53,11 +57,29 @@ simunpack(unsigned char *cpack, g2int *idrstmpl, g2int ndpts, float *fld)
     if (nbits != 0)
     {
         gbits(cpack, ifld, 0, nbits, 0, ndpts);
+
+        /* Each output point depends only on its own input point, so
+         * this loop is embarrassingly parallel: vectorize it on the
+         * CPU, or offload it to a GPU when built with
+         * ENABLE_GPU_OFFLOAD and the field is large enough to be
+         * worth the host<->device transfer. */
+#if defined(G2C_GPU_OFFLOAD)
+#pragma omp target teams distribute parallel for simd                        \
+    map(to : ifld[0 : ndpts]) map(from : fld[0 : ndpts]) if (ndpts > G2C_OMP_MIN_N)
+#elif defined(_OPENMP)
+#pragma omp parallel for simd if (ndpts > G2C_OMP_MIN_N)
+#endif
         for (j = 0; j < ndpts; j++)
             fld[j] = (((float)ifld[j] * bscale) + ref) * dscale;
     }
     else
     {
+#if defined(G2C_GPU_OFFLOAD)
+#pragma omp target teams distribute parallel for simd                        \
+    map(from : fld[0 : ndpts]) if (ndpts > G2C_OMP_MIN_N)
+#elif defined(_OPENMP)
+#pragma omp parallel for simd if (ndpts > G2C_OMP_MIN_N)
+#endif
         for (j = 0; j < ndpts; j++)
             fld[j] = ref;
     }

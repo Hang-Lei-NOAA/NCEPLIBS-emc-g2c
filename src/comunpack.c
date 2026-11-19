@@ -38,8 +38,8 @@
  * @author Stephen Gilbert @date 2002-10-29
  */
 int
-comunpack(unsigned char *cpack, g2int lensec, g2int idrsnum,
-          g2int *idrstmpl, g2int ndpts, float *fld)
+comunpack(unsigned char *restrict cpack, g2int lensec, g2int idrsnum,
+          g2int *idrstmpl, g2int ndpts, float *restrict fld)
 {
     g2int nbitsd = 0, isign;
     g2int j, iofst, ival1, ival2, minsd, itemp, l, k, n, non = 0;
@@ -316,6 +316,22 @@ comunpack(unsigned char *cpack, g2int lensec, g2int idrsnum,
     /*  Scale data back to original form */
     if (idrstmpl[6] == 0)
     { /* no missing values */
+        /* Each output point depends only on its own input point, so
+         * this loop is embarrassingly parallel: vectorize it on the
+         * CPU, or offload it to a GPU when built with
+         * ENABLE_GPU_OFFLOAD and the field is large enough to be
+         * worth the host<->device transfer. (The "missing values
+         * included" branch below is not treated the same way: its
+         * write index into ifld is advanced by a data-dependent
+         * "non++", so it is not a simple parallel loop without first
+         * precomputing, e.g. via a prefix sum, where each point's
+         * value actually lands.) */
+#if defined(G2C_GPU_OFFLOAD)
+#pragma omp target teams distribute parallel for simd                        \
+    map(to : ifld[0 : ndpts]) map(from : fld[0 : ndpts]) if (ndpts > G2C_OMP_MIN_N)
+#elif defined(_OPENMP)
+#pragma omp parallel for simd if (ndpts > G2C_OMP_MIN_N)
+#endif
         for (n = 0; n < ndpts; n++)
         {
             fld[n] = (((float)ifld[n] * bscale) + ref) * dscale;

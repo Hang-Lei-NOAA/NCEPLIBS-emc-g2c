@@ -33,7 +33,7 @@
  * @author Stephen Gilbert @date 2002-11-06
  */
 void
-simpack(float *fld, g2int ndpts, g2int *idrstmpl,
+simpack(float *restrict fld, g2int ndpts, g2int *idrstmpl,
         unsigned char *cpack, g2int *lcpack)
 {
     static g2int zero = 0;
@@ -52,9 +52,20 @@ simpack(float *fld, g2int ndpts, g2int *idrstmpl,
     else
         nbits = idrstmpl[3];
 
-    /* Find max and min values in the data. */
+    /* Find max and min values in the data. This is a textbook
+     * min/max reduction: the result does not depend on the order
+     * values are visited in, so it is safe to parallelize (unlike a
+     * floating-point sum reduction, which can change results
+     * slightly depending on summation order). */
     rmax = fld[0];
     rmin = fld[0];
+#if defined(G2C_GPU_OFFLOAD)
+#pragma omp target teams distribute parallel for simd                        \
+    map(to : fld[0 : ndpts]) reduction(max : rmax) reduction(min : rmin)     \
+        if (ndpts > G2C_OMP_MIN_N)
+#elif defined(_OPENMP)
+#pragma omp parallel for simd reduction(max : rmax) reduction(min : rmin) if (ndpts > G2C_OMP_MIN_N)
+#endif
     for (j = 1; j < ndpts; j++)
     {
         if (fld[j] > rmax)

@@ -79,8 +79,15 @@ misspack(float *fld, g2int ndpts, g2int idrsnum, g2int *idrstmpl,
      * missing value mapping of the field. */
     ifldmiss = calloc(ndpts, sizeof(g2int));
     rmin = 1E+37;
+    /* Each iteration below writes only its own ifldmiss[j] (no two
+     * iterations touch the same element) and the rmin update is a
+     * min-reduction, whose result does not depend on visitation
+     * order, so both loops are safe to parallelize on the CPU. */
     if (missopt == 1)
     { /* Primary missing value only */
+#ifdef _OPENMP
+#pragma omp parallel for reduction(min : rmin) if (ndpts > G2C_OMP_MIN_N)
+#endif
         for (j = 0; j < ndpts; j++)
         {
             if (fld[j] == rmissp)
@@ -97,6 +104,9 @@ misspack(float *fld, g2int ndpts, g2int idrsnum, g2int *idrstmpl,
     }
     if (missopt == 2)
     { /* Primary and secondary missing values */
+#ifdef _OPENMP
+#pragma omp parallel for reduction(min : rmin) if (ndpts > G2C_OMP_MIN_N)
+#endif
         for (j = 0; j < ndpts; j++)
         {
             if (fld[j] == rmissp)

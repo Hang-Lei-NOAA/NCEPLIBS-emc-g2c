@@ -151,6 +151,23 @@ if(PTHREADS)
   endif()
 endif()
 
+# Build with OpenMP. This vectorizes/parallelizes the hot per-point
+# loops in the pack/unpack routines on the CPU. When ENABLE_GPU_OFFLOAD
+# is also set, the same loops are additionally compiled with OpenMP
+# target offload regions so they can run on a GPU.
+if(OPENMP)
+  target_link_libraries(${lib_name}_objlib PRIVATE OpenMP::OpenMP_C)
+  if(BUILD_SHARED_LIBS)
+    target_link_libraries(${lib_name}_shared PRIVATE OpenMP::OpenMP_C)
+  endif()
+  if(BUILD_STATIC_LIBS)
+    target_link_libraries(${lib_name}_static PRIVATE OpenMP::OpenMP_C)
+  endif()
+endif()
+if(ENABLE_GPU_OFFLOAD)
+  target_compile_definitions(${lib_name}_objlib PRIVATE G2C_GPU_OFFLOAD)
+endif()
+
 # Create this header file, which has the contents of the VERSION file
 # substituted in.
 CONFIGURE_FILE("${CMAKE_CURRENT_SOURCE_DIR}/grib2.h.in" "${CMAKE_CURRENT_BINARY_DIR}/grib2.h"

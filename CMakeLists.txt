@@ -28,8 +28,19 @@ option(FTP_LARGE_TEST_FILES "Fetch and test with very large files on FTP site." 
 option(FTP_EXTRA_TEST_FILES "Test with more large files fetched via FTP." OFF)
 option(LOGGING "Turn on internal logging messages. Only useful to g2c developers." OFF)
 option(PTHREADS "Turn on thread-safty with pthreads." OFF)
+option(OPENMP "Build with OpenMP support, used to vectorize and parallelize the hot per-point loops in the pack/unpack routines." OFF)
+option(ENABLE_GPU_OFFLOAD "Build with OpenMP target GPU offload support for the pack/unpack routines (implies OPENMP). Requires an OpenMP offload-capable compiler plus target-architecture flags supplied via CMAKE_C_FLAGS (e.g. -fopenmp-targets=nvptx64-nvidia-cuda for Clang, or -mp=gpu for NVHPC)." OFF)
 option(UTILS "Build and install some utility programs." ON)
 option(BUILD_G2C "Build the g2c file-based API." ON)
+
+# ENABLE_GPU_OFFLOAD builds on top of the CPU OpenMP support.
+if(ENABLE_GPU_OFFLOAD AND NOT OPENMP)
+  set(OPENMP ON CACHE BOOL "Build with OpenMP support, used to vectorize and parallelize the hot per-point loops in the pack/unpack routines." FORCE)
+endif()
+
+if(OPENMP)
+  find_package(OpenMP REQUIRED COMPONENTS C)
+endif()
 
 # Developers can use this option to specify a local directory which
 # holds the test files. They will be copied instead of fetching the

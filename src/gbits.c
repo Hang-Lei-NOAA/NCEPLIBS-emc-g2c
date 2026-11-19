@@ -40,6 +40,9 @@ sbit(unsigned char *out, g2int *in, g2int iskip, g2int nbits)
     sbits(out, in, iskip, nbits, (g2int)0, (g2int)1);
 }
 
+/** Lookup table of (2^k)-1 masks, used by gbits() and sbits(). */
+static g2int gbits_ones[] = {1, 3, 7, 15, 31, 63, 127, 255};
+
 /**
  * Unpack arbitrary size values from a packed bit string, right
  * justifying each value in the unpacked iout array.
@@ -51,28 +54,45 @@ sbit(unsigned char *out, g2int *in, g2int iskip, g2int nbits)
  * @param nskip Additional number of bits to skip on each iteration.
  * @param n Number of iterations.
  *
+ * @note nbits and nskip are fixed for the whole call, so the bit
+ * offset of the start of field i is simply iskip + i * (nbits +
+ * nskip). This function computes that offset directly for each i,
+ * instead of carrying a running offset from one iteration to the
+ * next (as earlier versions of this code did). That removes the
+ * loop-carried dependency between iterations, which (a) helps the
+ * compiler auto-vectorize the loop, and (b) makes it safe to run the
+ * iterations in parallel, since no iteration reads or writes
+ * anything another iteration touches. That parallelism is used on
+ * the CPU via OpenMP when available, and optionally offloaded to a
+ * GPU when the library is built with ENABLE_GPU_OFFLOAD.
+ *
  * @author NOAA Programmer
  */
 void
-gbits(unsigned char *in, g2int *iout, g2int iskip, g2int nbits,
+gbits(unsigned char *restrict in, g2int *restrict iout, g2int iskip, g2int nbits,
       g2int nskip, g2int n)
 {
-    g2int i, tbit, bitcnt, ibit, itmp;
-    g2int nbit, index;
-    static g2int ones[] = {1, 3, 7, 15, 31, 63, 127, 255};
+    g2int i;
+    g2int stride = nbits + nskip;
 
-    /* nbit is the start position of the field in bits */
-    nbit = iskip;
+#if defined(G2C_GPU_OFFLOAD)
+#pragma omp target teams distribute parallel for simd                        \
+    map(to : in[0 : (size_t)((iskip + n * stride + 7) / 8)])                 \
+        map(from : iout[0 : n]) if (n > G2C_OMP_MIN_N)
+#elif defined(_OPENMP)
+#pragma omp parallel for if (n > G2C_OMP_MIN_N)
+#endif
     for (i = 0; i < n; i++)
     {
-        bitcnt = nbits;
-        index = nbit / 8;
-        ibit = nbit % 8;
-        nbit = nbit + nbits + nskip;
+        g2int nbit = iskip + i * stride;
+        g2int bitcnt = nbits;
+        g2int index = nbit / 8;
+        g2int ibit = nbit % 8;
+        g2int itmp, tbit;
 
         /* first byte */
         tbit = (bitcnt < (8 - ibit)) ? bitcnt : 8 - ibit; // find min
-        itmp = (int)*(in + index) & ones[7 - ibit];
+        itmp = (int)*(in + index) & gbits_ones[7 - ibit];
         if (tbit != 8 - ibit)
             itmp >>= (8 - ibit - tbit);
         index++;
@@ -90,7 +110,7 @@ gbits(unsigned char *in, g2int *iout, g2int iskip, g2int nbits,
         if (bitcnt > 0)
         {
             itmp = (itmp << bitcnt) |
-                   (((int)*(in + index) >> (8 - bitcnt)) & ones[bitcnt - 1]);
+                   (((int)*(in + index) >> (8 - bitcnt)) & gbits_ones[bitcnt - 1]);
         }
 
         iout[i] = itmp;
@@ -172,6 +192,12 @@ g2c_gbits_int(unsigned char *in, int *iout, int iskip, int nbits,
  * @param nskip Additional number of bits to skip on each iteration.
  * @param n Number of iterations.
  *
+ * @note Unlike gbits(), this loop is not parallelized. Packed values
+ * are not generally byte-aligned, so adjacent iterations can do a
+ * read-modify-write on the same output byte (see the "make byte
+ * aligned" step below); running iterations in parallel without
+ * byte-level synchronization would race on those shared bytes.
+ *
  * @author NOAA Programmer
  */
 void
@@ -180,7 +206,7 @@ sbits(unsigned char *out, g2int *in, g2int iskip, g2int nbits,
 {
     g2int i, bitcnt, tbit, ibit, itmp, imask, itmp2, itmp3;
     g2int nbit, index;
-    static g2int ones[] = {1, 3, 7, 15, 31, 63, 127, 255};
+    g2int *ones = gbits_ones;
 
     /* number bits from zero to ... nbit is the last bit of the field
      * to be filled. */

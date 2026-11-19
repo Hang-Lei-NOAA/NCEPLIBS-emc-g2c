@@ -29,6 +29,12 @@
 
 #define ALOG2 (0.69314718) /**< ln(2.0) */
 
+/** Minimum number of elements in a pack/unpack loop before it is
+ * worth paying the overhead of an OpenMP parallel region (CPU) or a
+ * GPU offload transfer. A single GRIB2 field is often well under
+ * this, so small fields still run as a plain scalar loop. */
+#define G2C_OMP_MIN_N 10000
+
 /** Name of JPEG codec in Jasper. */
 #define G2C_JASPER_JPEG_FORMAT_NAME "jpc"
 
@@ -323,14 +329,14 @@ int g2c_get_datetime(int ipdtn, long long int *ipdtmpl, short year, unsigned cha
 int g2c_get_level_desc(int ipdtn, long long int *ipdtmpl, char *level_desc);
 
 /* Packing and unpacking data. */
-void simpack(float *fld, g2int ndpts, g2int *idrstmpl,
+void simpack(float *restrict fld, g2int ndpts, g2int *idrstmpl,
              unsigned char *cpack, g2int *lcpack);
-g2int simunpack(unsigned char *cpack, g2int *idrstmpl, g2int ndpts,
-                float *fld);
+g2int simunpack(unsigned char *restrict cpack, g2int *idrstmpl, g2int ndpts,
+                float *restrict fld);
 void compack(float *fld, g2int ndpts, g2int idrsnum, g2int *idrstmpl,
              unsigned char *cpack, g2int *lcpack);
-int comunpack(unsigned char *cpack, g2int lensec, g2int idrsnum,
-              g2int *idrstmpl, g2int ndpts, float *fld);
+int comunpack(unsigned char *restrict cpack, g2int lensec, g2int idrsnum,
+              g2int *idrstmpl, g2int ndpts, float *restrict fld);
 void misspack(float *fld, g2int ndpts, g2int idrsnum, g2int *idrstmpl,
               unsigned char *cpack, g2int *lcpack);
 void cmplxpack(float *fld, g2int ndpts, g2int idrsnum, g2int *idrstmpl,
@@ -371,7 +377,7 @@ int dec_aec(unsigned char *cpack, g2int len, g2int nbits, g2int flags,
 /* Packing and unpacking bits. */
 void gbit(unsigned char *in, g2int *iout, g2int iskip, g2int nbits);
 void sbit(unsigned char *out, g2int *in, g2int iskip, g2int nbits);
-void gbits(unsigned char *in, g2int *iout, g2int iskip, g2int nbits,
+void gbits(unsigned char *restrict in, g2int *restrict iout, g2int iskip, g2int nbits,
            g2int nskip, g2int n);
 void sbits(unsigned char *out, g2int *in, g2int iskip, g2int nbits,
            g2int nskip, g2int n);

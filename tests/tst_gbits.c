@@ -6,6 +6,7 @@
 
 #include "grib2_int.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 int
 main()
@@ -139,6 +140,63 @@ main()
         g2c_gbit_int(cgrib, &lencurr, 96, 32);
         if (lencurr != MSG_LEN)
             return G2C_ERROR;
+    }
+    printf("ok!\n");
+    printf("Testing gbits()/sbits() round-trip at a scale and with nskip "
+           "values that exercise the closed-form offset rewrite of "
+           "gbits() (and, when built with OpenMP, its parallel code "
+           "path)...");
+    {
+#define TST_GBITS_N 50000 /* Larger than G2C_OMP_MIN_N. */
+        g2int nbits_vals[] = {1, 5, 13, 20};
+        g2int nskip_vals[] = {0, 3};
+        g2int iskip_vals[] = {0, 5};
+        size_t a, b, c;
+
+        for (a = 0; a < sizeof(nbits_vals) / sizeof(nbits_vals[0]); a++)
+        {
+            for (b = 0; b < sizeof(nskip_vals) / sizeof(nskip_vals[0]); b++)
+            {
+                for (c = 0; c < sizeof(iskip_vals) / sizeof(iskip_vals[0]); c++)
+                {
+                    g2int nbits = nbits_vals[a];
+                    g2int nskip = nskip_vals[b];
+                    g2int iskip = iskip_vals[c];
+                    g2int stride = nbits + nskip;
+                    g2int nbytes = (iskip + (g2int)TST_GBITS_N * stride) / 8 + 16;
+                    g2int mask = ((g2int)1 << nbits) - 1;
+                    g2int *orig, *result;
+                    unsigned char *packed;
+                    g2int k;
+
+                    if (!(orig = malloc(TST_GBITS_N * sizeof(g2int))) ||
+                        !(result = malloc(TST_GBITS_N * sizeof(g2int))) ||
+                        !(packed = calloc((size_t)nbytes, 1)))
+                        return G2C_ERROR;
+
+                    for (k = 0; k < TST_GBITS_N; k++)
+                        orig[k] = (g2int)rand() & mask;
+
+                    sbits(packed, orig, iskip, nbits, nskip, TST_GBITS_N);
+                    gbits(packed, result, iskip, nbits, nskip, TST_GBITS_N);
+
+                    for (k = 0; k < TST_GBITS_N; k++)
+                    {
+                        if (result[k] != orig[k])
+                        {
+                            free(orig);
+                            free(result);
+                            free(packed);
+                            return G2C_ERROR;
+                        }
+                    }
+
+                    free(orig);
+                    free(result);
+                    free(packed);
+                }
+            }
+        }
     }
     printf("ok!\n");
     printf("SUCCESS!\n");
